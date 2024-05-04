@@ -411,3 +411,143 @@ export default function MyApp({ Component, pageProps }: AppProps) {
 ```
 
 이러한 글로벌 스타일은 다른 페이지나 컴포넌트와 충돌할 수 있으므로 반드시 \_app.tsx에서만 제한적으로 작성해야 한다.
+
+#### 컴포넌트 레벨 CSS
+
+Next.js에서는 컴포넌트 레벨의 CSS를 추가할 수 있음.
+[name].module.css와 같은 명명 규칙만 준수하면 되며, 이 컴포넌트 레벨 CSS는 다른 컴포넌트의 클래스명과 겹쳐서 스타일에 충돌이 일어나지 않도록 고유한 클래스명을 제공합니다.
+
+```css
+/* button.module.css */
+.alert {
+  color: red;
+  font-size: 16px;
+}
+```
+
+```javascript
+import styles from "./Button.module.css";
+
+export function Button() {
+  return (
+    <button type="button" className={styles.alert}>
+      경고!
+    </button>
+  );
+}
+```
+
+```html
+<head>
+  <!-- 생략 -->
+  <!-- 실제 프러덕션 빌드 시에는 스타일 태그가 아닌 별도 CSS 파일을 생성합니다. -->
+  <style>
+    .Button.alert__62TGU {
+      color: red;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<button type="button" class="Button_alert_62TGU">경고!</button>
+```
+
+button에 alert 클래스를 선언해 스타일을 입혔지만, 실제 클래스는 Button_alert\_\_62TGU와 같이 조금 다른 것을 볼 수 있는데,
+언급한 컴포넌트별 스타일 충돌을 방지하기 위한 Next.js의 최적화가 잘 작동하고 있는 것임을 확인할 수 있습니다.
+
+#### SCSS와 SASS
+
+sass와 scss도 css를 사용할 떄와 마찬가지로 동일 방식으로 사용합니다.
+
+```javascript
+$primary: blue;
+
+:export {
+  primary: $primary;
+}
+import styles from './Button.module.scss';
+
+export function Button() {
+  return {
+    /* styles.primary 형태로 꺼내올 수 있다. */
+    <span style={{color: styles.primary }}>
+      안녕하세요.
+    </span>
+  }
+}
+```
+
+이 외에도 컴포넌트 레벨 CSS와 코드 작동 방식이 동일합니다.
+
+#### CSS-in-JS
+
+비록 CSS와 비교했을 떄 CSS-in-JS가 코드 작성의 편의성 이외에 실제로 성능 이점을 가지고 있는지는 논쟁거리로 남아있지만,
+CSS 구문이 자바스크립트 내부에 있다는 것은 확실히 프론트엔드 개발자에게 직관적이고 편리하게 느껴질 것 이다.
+
+대표적인 라이브러리가 CSS-in-JS -> styles-jsx, styles-component, Emotion 등 여러가지가 있음.
+Next.js 에서 style-component을 적용하려면 여러가지 셋팅이 필요합니다.
+
+```javascript
+return (
+  <Html lang="ko">
+    <Head />
+    <body>
+      <Main />
+      <NextScript />
+    </body>
+  </Html>
+);
+
+MyDocument.getInitialProps = async (
+  ctx: DocumentContext
+): Promise<DocumentInitialProps> => {
+  const sheet = new ServerStyleSheet();
+  const originalRenderPage = ctx.renderPage;
+
+  console.log(sheet);
+
+  try {
+    ctx.renderPage = () =>
+      originalRenderPage({
+        enhanceApp: (App) => (props) => sheet.collectStyles(<App {...props} />),
+      });
+
+    const initialProps = await Document.getInitialProps(ctx);
+    return {
+      ...initialProps,
+      styles: (
+        <>
+          {initialProps.styles}
+          {sheet.getStyleElement()}
+        </>
+      ),
+    };
+  } finally {
+    sheet.seal();
+  }
+};
+```
+
+\_document.tsx 가 앞서 문서를 초기화하기 위한 Next.js의 특별한 페이지라고 했는데,
+여기에 서버와 클라이언트 모두에서 작동하는 getInitialProps 를 사용해 무언가 처리하는 것 같다 하나씩 보자.
+
+1. ServerStyleSheet는 style-component의 스타일을 서버에서 초기화해 사용되는 클래스다. 이 클래스를 인스턴스로 초기화하면 서버에서 style-components가 작동하기 위한 다양한 기능을 가지고 있습니다.
+
+2. originalRenderPage는 ctx.renderPage를 담아두고 있다. 즉 기존의 ctx.renderPage가 하는 작업에 추가적으로 styled-components 관련 작업을 하기 위해 별도 변수로 분리했습니다.
+
+3. ctx.renderPage에는 기존에 해야 하는 작업과 함께 enhanceApp, 즉 App을 렌더링할 떄 추가로 수행하고 싶은 작업을 정의했습니다.
+
+4. const initialProps = await Document.getInitialProps(ctx)는 기존 \_document.tsx가 렌더링을 수행할 떄 필요한 getInitialProps를 생성하는 작업을 합니다.
+
+5. 마지막 반환 문구에서 기존에 기본적으로 내려주는 props에 추가적으로 styled-components가 모아둔 자바스크립트 파일 내 스타일을 반환합니다.
+
+내용이 조금 복잡하지만, 이렇게 CSS-in-JS의 스타일을 적용하려면 이 과정을 거쳐야 합니다.
+만약에 이런 과정을 거치지 않는다면, 스타일이 브라우저에서 뒤늦게 추가되어 FOUC라는, 스타일이 입혀지지 않은 날것의 HTML을 잠시간 사용자에게 노출하게 된다.
+
+#### \_app.tsx 응용하기
+
+app.tsx 에서 사용자가 처음 서비스에 접근했을 떄 하고 싶은 무언가를 여기에서 처리할 수 있습니다.
+
+#### next.config.js 살펴보기
+
+next.config.js 는 Next.js 실행에 필요한 설정을 추가할 수 있는 파일입니다.
+Next.js 실행과 사용자화에 필요한 다양한 설정을 추가할 수 있어서, 어떠한 설정이 직접 소스코드를 통해 확인 해 보는 것이 좋습니다.
